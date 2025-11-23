@@ -1,0 +1,49 @@
+
+// nn-worker.js
+// Computes 1st/2nd/3rd nearest-neighbor distances using a spatial hash.
+// Input: Float32Array positions [x,y,z,...]
+// Output: {d1, d2, d3} as Float32Array (transferred)
+
+self.onmessage = (ev) => {
+  const pts = ev.data; // Float32Array
+  const N = pts.length/3;
+  if(!N){ self.postMessage({ d1:new Float32Array(), d2:new Float32Array(), d3:new Float32Array() }); return; }
+
+  const cellSize = 2.0;
+  const map = new Map();
+  const key = (ix,iy,iz)=> `${ix}|${iy}|${iz}`;
+
+  for(let i=0;i<N;i++){
+    const x=pts[i*3], y=pts[i*3+1], z=pts[i*3+2];
+    const ix=Math.floor(x/cellSize), iy=Math.floor(y/cellSize), iz=Math.floor(z/cellSize);
+    const k=key(ix,iy,iz); if(!map.has(k)) map.set(k, []); map.get(k).push(i);
+  }
+
+  const d1=new Float32Array(N), d2=new Float32Array(N), d3=new Float32Array(N);
+  for(let i=0;i<N;i++){ d1[i]=Infinity; d2[i]=Infinity; d3[i]=Infinity; }
+
+  for(let i=0;i<N;i++){
+    const x=pts[i*3], y=pts[i*3+1], z=pts[i*3+2];
+    const ix=Math.floor(x/cellSize), iy=Math.floor(y/cellSize), iz=Math.floor(z/cellSize);
+
+    let m1=Infinity, m2=Infinity, m3=Infinity;
+    for(let dx=-1;dx<=1;dx++){
+      for(let dy=-1;dy<=1;dy++){
+        for(let dz=-1;dz<=1;dz++){
+          const list=map.get(key(ix+dx,iy+dy,iz+dz)); if(!list) continue;
+          for(const j of list){
+            if(i===j) continue;
+            const qx=pts[j*3], qy=pts[j*3+1], qz=pts[j*3+2];
+            const d = Math.hypot(x-qx, y-qy, z-qz);
+            if(d<m1){ m3=m2; m2=m1; m1=d; }
+            else if(d<m2){ m3=m2; m2=d; }
+            else if(d<m3){ m3=d; }
+          }
+        }
+      }
+    }
+    d1[i]=m1; d2[i]=m2; d3[i]=m3;
+  }
+
+  self.postMessage({ d1, d2, d3 }, [d1.buffer, d2.buffer, d3.buffer]);
+};
